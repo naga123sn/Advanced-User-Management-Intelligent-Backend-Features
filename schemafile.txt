@@ -1,0 +1,227 @@
+-- ============================================================
+--  TICKET MANAGEMENT SYSTEM — Complete Final Database Schema
+--  Run this file in MySQL Workbench
+--  Updated: Includes all features added throughout development
+-- ============================================================
+
+-- Create & use the database
+CREATE DATABASE IF NOT EXISTS ticket_management;
+USE ticket_management;
+
+-- ============================================================
+-- 1. USERS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS users (
+    id                      INT AUTO_INCREMENT PRIMARY KEY,
+    name                    VARCHAR(100)            NOT NULL,
+    email                   VARCHAR(100)            NOT NULL UNIQUE,
+    password                VARCHAR(255)            NOT NULL,
+    role                    ENUM('admin', 'user')   DEFAULT 'user',
+
+    -- Account lifecycle
+    is_active               TINYINT(1)              DEFAULT 1,
+    is_deleted              TINYINT(1)              DEFAULT 0,
+
+    -- Session tracking
+    last_login              DATETIME                DEFAULT NULL,
+    last_logout             DATETIME                DEFAULT NULL,
+    is_online               TINYINT(1)              DEFAULT 0,
+
+    -- Failed login / block
+    failed_login_attempts   INT                     DEFAULT 0,
+    is_blocked              TINYINT(1)              DEFAULT 0,
+    blocked_until           DATETIME                DEFAULT NULL,
+
+    created_at              DATETIME                DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================================
+-- 2. HELPERS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS helpers (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    name        VARCHAR(100)    NOT NULL,
+    email       VARCHAR(100)    NOT NULL UNIQUE,
+    created_at  DATETIME        DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================================
+-- 3. TICKETS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS tickets (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    title       VARCHAR(200)                                    NOT NULL,
+    description TEXT                                            NOT NULL,
+    priority    ENUM('low', 'medium', 'high')                  DEFAULT 'low',
+    status      ENUM('pending', 'in_progress', 'resolved')     DEFAULT 'pending',
+    user_id     INT                                             NOT NULL,
+    helper_id   INT                                             DEFAULT NULL,
+
+    -- Soft delete
+    is_deleted  TINYINT(1)                                      DEFAULT 0,
+
+    created_at  DATETIME                                        DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME                                        DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (user_id)   REFERENCES users(id)   ON DELETE CASCADE,
+    FOREIGN KEY (helper_id) REFERENCES helpers(id) ON DELETE SET NULL
+);
+
+-- ============================================================
+-- 4. COMMENTS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS comments (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    comment     TEXT        NOT NULL,
+    ticket_id   INT         NOT NULL,
+    user_id     INT         NOT NULL,
+    created_at  DATETIME    DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id)   REFERENCES users(id)   ON DELETE CASCADE
+);
+
+-- ============================================================
+-- 5. AUDIT LOGS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    ticket_id           INT             NOT NULL,
+    action              VARCHAR(100)    NOT NULL,
+    description         VARCHAR(500)    NOT NULL,
+    performed_by        VARCHAR(100)    NOT NULL,
+    performed_by_role   VARCHAR(20)     NOT NULL,
+    created_at          DATETIME        DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+);
+
+-- ============================================================
+-- 6. LOGIN LOGS TABLE
+-- ============================================================
+CREATE TABLE IF NOT EXISTS login_logs (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    user_id         INT             NULL,
+    email           VARCHAR(100)    NOT NULL,
+    status          ENUM('success', 'failed', 'blocked') NOT NULL,
+    reason          VARCHAR(255)    NULL,
+    ip_address      VARCHAR(50)     NULL,
+    attempted_at    DATETIME        DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- ============================================================
+-- 7. DEFAULT ADMIN USER
+--    Email:    admin@example.com
+--    Password: admin123 (bcrypt hashed)
+-- ============================================================
+INSERT INTO users (
+    name, email, password, role,
+    is_active, is_deleted, is_online,
+    failed_login_attempts, is_blocked
+)
+VALUES (
+    'Admin User',
+    'admin@example.com',
+    '$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW',
+    'admin',
+    1, 0, 0, 0, 0
+)
+ON DUPLICATE KEY UPDATE name = name;
+
+-- ============================================================
+-- VERIFY — show all created tables
+-- ============================================================
+SHOW TABLES;
+
+-- ============================================================
+-- OPTIONAL: IF DATABASE ALREADY EXISTS
+-- Run only the ALTER statements below to add missing columns
+-- ============================================================
+
+/*
+
+USE ticket_management;
+
+-- Add session tracking columns to users
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS last_login              DATETIME  DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS last_logout             DATETIME  DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS is_online               TINYINT(1) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS failed_login_attempts   INT       DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS is_blocked              TINYINT(1) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS blocked_until           DATETIME  DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS is_deleted              TINYINT(1) DEFAULT 0;
+
+-- Add soft delete & updated_at to tickets
+ALTER TABLE tickets
+    ADD COLUMN IF NOT EXISTS is_deleted  TINYINT(1) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS updated_at  DATETIME   DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP;
+
+-- Add is_deleted to users (if not already added above)
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS is_deleted TINYINT(1) DEFAULT 0;
+
+-- Create audit_logs if missing
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    ticket_id           INT             NOT NULL,
+    action              VARCHAR(100)    NOT NULL,
+    description         VARCHAR(500)    NOT NULL,
+    performed_by        VARCHAR(100)    NOT NULL,
+    performed_by_role   VARCHAR(20)     NOT NULL,
+    created_at          DATETIME        DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+);
+
+-- Create login_logs if missing
+CREATE TABLE IF NOT EXISTS login_logs (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    user_id         INT             NULL,
+    email           VARCHAR(100)    NOT NULL,
+    status          ENUM('success', 'failed', 'blocked') NOT NULL,
+    reason          VARCHAR(255)    NULL,
+    ip_address      VARCHAR(50)     NULL,
+    attempted_at    DATETIME        DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+*/
+
+-- ============================================================
+-- TABLE DESCRIPTIONS (for reference)
+-- ============================================================
+
+/*
+
+DESCRIBE users;
+DESCRIBE helpers;
+DESCRIBE tickets;
+DESCRIBE comments;
+DESCRIBE audit_logs;
+DESCRIBE login_logs;
+
+TABLE SUMMARY:
+┌─────────────┬────────────────────────────────────────────────────────┐
+│ Table       │ Purpose                                                │
+├─────────────┼────────────────────────────────────────────────────────┤
+│ users       │ All users (admin + regular users)                      │
+│             │ Includes: session tracking, block management,          │
+│             │           soft delete, login timestamps                │
+├─────────────┼────────────────────────────────────────────────────────┤
+│ helpers     │ Support helpers assigned to tickets                    │
+├─────────────┼────────────────────────────────────────────────────────┤
+│ tickets     │ Support tickets created by users                       │
+│             │ Includes: soft delete, priority, status, assignment    │
+├─────────────┼────────────────────────────────────────────────────────┤
+│ comments    │ Comments on tickets by users and admins                │
+├─────────────┼────────────────────────────────────────────────────────┤
+│ audit_logs  │ Full history of all actions on every ticket            │
+│             │ Actions: CREATE, STATUS_CHANGE, ASSIGN, COMMENT, etc  │
+├─────────────┼────────────────────────────────────────────────────────┤
+│ login_logs  │ Every login attempt (success / failed / blocked)       │
+│             │ Includes: IP address, reason, timestamp                │
+└─────────────┴────────────────────────────────────────────────────────┘
+
+*/
